@@ -1,91 +1,117 @@
-const { src, dest, watch, parallel, series } = require('gulp');
+const gulp = require('gulp');
+const gulpIf = require('gulp-if');
+const browserSync = require('browser-sync').create();
+const sass = require('gulp-sass');
+const htmlmin = require('gulp-htmlmin');
+const cssmin = require('gulp-cssmin');
+const uglify = require('gulp-uglify');
+const imagemin = require('gulp-imagemin');
+const concat = require('gulp-concat');
+const jsImport = require('gulp-js-import');
+const sourcemaps = require('gulp-sourcemaps');
+const htmlPartial = require('gulp-html-partial');
+const clean = require('gulp-clean');
+const googleWebFonts = require( 'gulp-google-webfonts' );
+const cssbeautify = require('gulp-cssbeautify');
+const htmlbeautify = require('gulp-html-beautify')
+const isProd = process.env.NODE_ENV === 'prod';
 
-const scss         = require('gulp-sass')(require('sass'));
-const concat       = require ('gulp-concat');
-const browserSync  = require('browser-sync').create();
-const uglify       = require('gulp-uglify-es').default;
-const autoprefixer = require('gulp-autoprefixer');
-const imagemin     = require('gulp-imagemin'); 
-const del          = require('del'); 
+var options = { };
 
+const htmlFile = [
+    'src/*.html'
+]
 
-function browsersync(){
-    browserSync.init({
-    server : {
-    baseDir: 'app/'
+function html() {
+    return gulp.src(htmlFile)
+        .pipe(htmlPartial({
+            basePath: 'src/assets/partials/'
+        }))
+        .pipe(htmlbeautify())
+        .pipe(gulpIf(isProd, htmlmin({
+            collapseWhitespace: true
+        })))
+        .pipe(gulp.dest('public'));
 }
+
+function css() {
+    return gulp.src('src/assets/sass/style.scss')
+        .pipe(gulpIf(!isProd, sourcemaps.init()))
+        .pipe(sass({
+            includePaths: ['node_modules']
+        }).on('error', sass.logError))
+        .pipe(cssbeautify({
+            indent: '  ',
+            openbrace: 'separate-line',
+            autosemicolon: true
+        }))
+        .pipe(gulpIf(!isProd, sourcemaps.write()))
+        .pipe(gulpIf(isProd, cssmin()))
+        .pipe(gulp.dest('public/assets/css/'));
+}
+
+function js() {
+    return gulp.src('src/assets/js/*.js')
+        .pipe(jsImport({
+            hideConsole: true
+        }))
+        // .pipe(concat('all.js'))
+        .pipe(gulpIf(isProd, uglify()))
+        .pipe(gulp.dest('public/assets/js'));
+}
+
+function img() {
+    return gulp.src('src/assets/img/*')
+        .pipe(gulpIf(isProd, imagemin()))
+        .pipe(gulp.dest('public/assets/img/'));
+}
+
+function fonts() {
+    return gulp.src('src/assets/fonts/*.{eot,svg,ttf,woff,woff2}')
+		.pipe(gulp.dest('public/assets/fonts/'));
+}
+
+function fontAwesome() {
+    return gulp.src('./node_modules/@fortawesome/**/*')
+		.pipe(gulp.dest('public/assets/vendor/'));
+}
+
+
+function serve() {
+    browserSync.init({
+        open: true,
+        notify: false,
+        server: './public'
     });
 }
 
-function cleanDist(){
-    return del('dist')
+function browserSyncReload(done) {
+    browserSync.reload();
+    done();
 }
 
-function images(){
-    return src('app/images/**/**')
-    .pipe(imagemin(
-        [
-            imagemin.gifsicle({interlaced: true}),
-            imagemin.mozjpeg({quality: 75, progressive: true}),
-            imagemin.optipng({optimizationLevel: 5}),
-            imagemin.svgo({
-                plugins: [
-                    {removeViewBox: true},
-                    {cleanupIDs: false}
-                ]
-            })
-        ]
-    ))
-    .pipe(dest('dist/images'))
+
+function watchFiles() {
+    gulp.watch('src/**/*.html', gulp.series(html, browserSyncReload));
+    gulp.watch('src/assets/**/*.scss', gulp.series(css, browserSyncReload));
+    gulp.watch('src/assets/**/*.js', gulp.series(js, browserSyncReload));
+    gulp.watch('src/assets/img/**/*.*', gulp.series(img));
+    gulp.watch('src/assets/**/*.{eot,svg,ttf,woff,woff2}', gulp.series(fonts));
+    gulp.watch('src/assets/vendor/**/*.*', gulp.series(fontAwesome));
+
+    return;
 }
 
-function scripts(){
-    return src([
-        'node_modules/jquery/dist/jquery.js',
-        'app/js/main.js'
-
-    ])
-    .pipe(concat('main.min.js'))
-    .pipe(uglify())
-    .pipe(dest('app/js'))
-    .pipe(browserSync.stream())
-
+function del() {
+    return gulp.src('public/*', {read: false})
+        .pipe(clean());
 }
 
-function styles(){
-    return src('app/scss/style.scss')
-    .pipe(scss({outputStyle: 'compressed'}))
-    .pipe(concat('style.min.css'))
-    .pipe(autoprefixer({
-        overrideBrowserslist: ['last 10 version'],
-        grid: true
-    }))
-    .pipe(dest('app/css'))
-    .pipe(browserSync.stream())
-}
-function build(){
-    return src([
-    'app/css/style.min.css',
-    'app/fonts/**/*',
-    'app/js/main.min.js',
-    'app/*.html'
- ], {base: 'app'})
-    .pipe(dest('dist'))
-}
-
-function watching(){
-    watch(['app/scss/**/*.scss'],styles);
-    watch(['app/js/**/*.js','!app/js/main.min.js'],scripts);
-    watch(['app/*.html']).on('chenge', browserSync.reload);
-}
-
-exports.styles = styles;  
-exports.watching = watching; 
-exports.browsersync = browsersync;
-exports.scripts = scripts;
-exports.images = images;
-exports.cleanDist = cleanDist;
-
-
-exports.build = series(cleanDist,images, build);
-exports.default = parallel(styles, scripts , browsersync , watching);
+exports.css = css;
+exports.html = html;
+exports.js = js;
+exports.fonts = fonts;
+exports.fontAwesome = fontAwesome;
+exports.del = del;
+exports.serve = gulp.parallel(html, css, js, img, fonts, fontAwesome, watchFiles, serve);
+exports.default = gulp.series(del, html, css, js, fonts, img, fontAwesome);
